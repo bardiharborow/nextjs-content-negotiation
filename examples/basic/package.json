@@ -1,0 +1,22 @@
+{
+  "name": "nextjs-content-negotiation-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "smoke": "./smoke-test.sh"
+  },
+  "dependencies": {
+    "next": "^16.3.6",
+    "nextjs-content-negotiation": "file:../..",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^19",
+    "typescript": "^6.0.3"
+  }
+}

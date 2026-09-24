@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  # Weekly, so that the Next.js canary job catches upstream changes early.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run build
+      # Fails below 100% coverage (see vitest.config.ts).
+      - run: npm run coverage
+
+  example:
+    name: Example (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `next` is a version to install over the example's lockfile, which
+        # Dependabot keeps on the latest release. 16.3.0 is the oldest
+        # version that the Vary patch supports.
+        include:
+          - name: Next.js 16.3.0
+            next: 16.3.0
+          - name: Turbopack
+          - name: webpack
+            bundler: webpack
+          - name: basePath and trailingSlash
+            base-path: /site
+            trailing-slash: "1"
+          - name: patchVary off
+            patch-vary: "0"
+          - name: next dev, Turbopack
+            mode: dev
+          - name: next dev, webpack
+            mode: dev
+            bundler: webpack
+    env: &example-env
+      MODE: ${{ matrix.mode || 'start' }}
+      BUNDLER: ${{ matrix.bundler || 'turbopack' }}
+      BASE_PATH: ${{ matrix.base-path }}
+      TRAILING_SLASH: ${{ matrix.trailing-slash }}
+      PATCH_VARY: ${{ matrix.patch-vary }}
+    steps: &example-steps
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/basic/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      # Install the packed tarball, so that the example uses the files that
+      # would be published.
+      - run: npm pack
+      - run: npm ci
+        working-directory: examples/basic
+      - name: Install the package${{ matrix.next && ' and Next.js' || '' }}
+        working-directory: examples/basic
+        # Canary versions are prereleases, so they never match the peer range.
+        run: >-
+          npm install --no-save ../../nextjs-content-negotiation-*.tgz
+          ${{ matrix.next && format('next@{0}', matrix.next) || '' }}
+          ${{ matrix.next == 'canary' && '--legacy-peer-deps' || '' }}
+      - name: Build
+        if: env.MODE == 'start'
+        working-directory: examples/basic
+        run: npx next build ${{ env.BUNDLER == 'webpack' && '--webpack' || '' }}
+      - name: Check negotiated responses
+        working-directory: examples/basic
+        run: npm run smoke
+
+  # Not required for publishing: an upstream change should warn, not block.
+  canary:
+    name: Example (Next.js canary)
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        # Declares every key that the shared env reads.
+        include:
+          - next: canary
+            mode: start
+            bundler: turbopack
+            base-path: ""
+            trailing-slash: ""
+            patch-vary: ""
+    env: *example-env
+    steps: *example-steps
+
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'release'
+    needs: [check, example]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      # Trusted publishing: npm exchanges the OIDC token for a short-lived
+      # publish token and generates provenance automatically.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - name: Check that the tag matches the package version
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match package.json version v$version"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish ${{ github.event.release.prerelease && '--tag next' || '' }}

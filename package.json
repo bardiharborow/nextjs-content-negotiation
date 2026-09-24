@@ -1,0 +1,81 @@
+{
+  "name": "nextjs-content-negotiation",
+  "version": "0.1.0",
+  "description": "HTTP content negotiation (Accept, Accept-Language, Accept-Encoding) for Next.js",
+  "keywords": [
+    "nextjs",
+    "next",
+    "content-negotiation",
+    "accept",
+    "accept-language",
+    "accept-encoding",
+    "vary",
+    "http"
+  ],
+  "homepage": "https://github.com/bardiharborow/nextjs-content-negotiation#readme",
+  "bugs": {
+    "url": "https://github.com/bardiharborow/nextjs-content-negotiation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bardiharborow/nextjs-content-negotiation.git"
+  },
+  "author": {
+    "name": "Bardi Harborow",
+    "url": "https://bardiharborow.com/"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    },
+    "./negotiate": {
+      "types": "./dist/negotiate.d.ts",
+      "default": "./dist/negotiate.js"
+    },
+    "./vary-loader": {
+      "types": "./dist/vary-loader.d.cts",
+      "default": "./dist/vary-loader.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "path-to-regexp": "^6.3.0"
+  },
+  "peerDependencies": {
+    "next": ">=16.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.2",
+    "@vitest/coverage-v8": "^5.0.1",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "jiti": "^2.7.0",
+    "next": "^16.3.6",
+    "prettier": "^3.9.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}

@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/examples/basic"
+    schedule:
+      interval: weekly
+    # Wait a few days before proposing a new release, so that broken or
+    # compromised versions are more likely to be caught and pulled first.
+    cooldown:
+      default-days: 7
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]

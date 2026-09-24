@@ -1,0 +1,5 @@
+dist/
+examples/basic/.next/
+package-lock.json
+examples/*/next-env.d.ts
+coverage/
