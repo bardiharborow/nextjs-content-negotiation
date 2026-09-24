@@ -58,7 +58,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "path-to-regexp": "^6.3.0"
+    "path-to-regexp": "^8.4.2"
   },
   "peerDependencies": {
     "next": ">=16.3.0"
