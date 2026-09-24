@@ -35,7 +35,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm run build
       # Fails below 100% coverage (see vitest.config.ts).
       - run: npm run coverage
 
@@ -80,7 +79,6 @@ jobs:
             package-lock.json
             examples/basic/package-lock.json
       - run: npm ci
-      - run: npm run build
       # Install the packed tarball, so that the example uses the files that
       # would be published.
       - run: npm pack
@@ -147,5 +145,4 @@ jobs:
             exit 1
           fi
       - run: npm ci
-      - run: npm run build
       - run: npm publish ${{ github.event.release.prerelease && '--tag next' || '' }}
