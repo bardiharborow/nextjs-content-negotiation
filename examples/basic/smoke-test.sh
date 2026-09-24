@@ -101,6 +101,12 @@ serves_french() {
   grep -q 'lang="fr"' <<<"$body"
 }
 
+content_language() {
+  local response
+  response=$(headers -H 'Accept-Language: fr' "$(url /docs/intro)")
+  expect_header '^content-language: fr\s*$' "$response"
+}
+
 serves_markdown() {
   local response
   response=$(headers -H 'Accept: text/markdown' "$(url /docs/intro)")
@@ -145,6 +151,7 @@ server_action_negotiated() {
 check "static page Vary" static_page_vary
 check "dynamic page Vary" dynamic_page_vary
 check "Accept-Language: fr serves the French page" serves_french
+check "the French page sends Content-Language: fr" content_language
 check "Accept: text/markdown serves Markdown" serves_markdown
 check "unacceptable Accept on a 406 rule responds 406" not_acceptable
 check "Accept: */* with an unoffered language serves Markdown" wildcard_gets_markdown

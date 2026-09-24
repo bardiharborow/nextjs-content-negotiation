@@ -137,6 +137,11 @@ export function negotiateRequest(
       } else {
         response = NextResponse.next();
       }
+      // A language-neutral variant has no language to declare
+      // (RFC 9110 §8.5).
+      if (variant.language !== undefined) {
+        response.headers.set("Content-Language", variant.language);
+      }
     }
     if (compiledRule.vary) response.headers.set("Vary", compiledRule.vary);
     return response;

@@ -175,7 +175,8 @@ proxy `matcher` must cover every negotiated path. When the rule negotiates the
 media type, `Vary` also lists `RSC`, because App Router navigations always get
 the HTML variant. When
 the request is rewritten, it also gets `Content-Location` with the variant's
-own URL.
+own URL. When the selected variant declares a `language`, the response gets
+`Content-Language` with that language.
 
 The negotiation functions do not depend on Next.js. You can use them directly:
 

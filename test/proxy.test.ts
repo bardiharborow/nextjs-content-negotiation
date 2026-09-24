@@ -72,6 +72,40 @@ describe("negotiateRequest", () => {
       negotiation,
     );
     expect(rewrite(response)).toBe("http://localhost:3000/fr/docs/intro");
+    expect(response?.headers.get("content-language")).toBe("fr");
+  });
+
+  it("sets Content-Language for the default variant", () => {
+    const response = negotiateRequest(request("/docs/intro"), negotiation);
+    expect(response?.headers.get("content-language")).toBe("en");
+  });
+
+  it("does not set Content-Language for a language-neutral variant", () => {
+    const response = negotiateRequest(
+      request("/docs/intro", { accept: "text/markdown" }),
+      negotiation,
+    );
+    expect(response?.headers.get("content-language")).toBeNull();
+  });
+
+  it("does not set Content-Language on a 406 response", () => {
+    const response = negotiateRequest(
+      request("/api/items/1", { accept: "image/png" }),
+      defineNegotiation({
+        rules: [
+          {
+            source: "/api/items/:id",
+            variants: [
+              { type: "application/json", language: "en" },
+              { type: "text/csv", destination: "/api/csv/items/:id" },
+            ],
+            onNoMatch: 406,
+          },
+        ],
+      }),
+    );
+    expect(response?.status).toBe(406);
+    expect(response?.headers.get("content-language")).toBeNull();
   });
 
   it("serves the default HTML page to browsers whose language is not offered", () => {
