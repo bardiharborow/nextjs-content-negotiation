@@ -6,13 +6,9 @@ import {
   type PathFunction,
 } from "path-to-regexp";
 import type { NegotiationConfig, NegotiationRule } from "./config.js";
-import {
-  DIMENSION_HEADERS,
-  variantDimensions,
-  type Dimension,
-} from "./dimensions.js";
+import { DIMENSION_HEADERS, type Dimension } from "./dimensions.js";
 import type { HeaderSource, Variant } from "./negotiate.js";
-import { resolveVariant } from "./resolve.js";
+import { negotiatedDimensions, resolveVariant } from "./resolve.js";
 
 type Params = Record<string, string | string[]>;
 
@@ -29,7 +25,7 @@ const compiled = new WeakMap<NegotiationRule, CompiledRule>();
 function compileRule(rule: NegotiationRule): CompiledRule {
   let result = compiled.get(rule);
   if (!result) {
-    const dimensions = variantDimensions(rule.variants);
+    const dimensions = negotiatedDimensions(rule);
     const vary = dimensions.map((dimension) => DIMENSION_HEADERS[dimension]);
     // `negotiationHeaders` reads the `RSC` header to pick the media type, so
     // caches must key on it too (RFC 9110 §12.5.5). Otherwise a variant

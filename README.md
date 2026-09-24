@@ -178,6 +178,14 @@ the request is rewritten, it also gets `Content-Location` with the variant's
 own URL. When the selected variant declares a `language`, the response gets
 `Content-Language` with that language.
 
+If every variant of a rule declares the same `type`, `language` or `encoding`
+and `onNoMatch` is not `406`, that dimension is not negotiated: its header does
+not affect the selection and is not added to `Vary` (a shared `type` also
+removes `RSC`). The response still gets `Content-Language`. This way, a
+single-language site can declare its language, and a site that only
+negotiates language can declare its media type, without making shared caches
+store a copy per header value. Values are compared without regard to case.
+
 The negotiation functions do not depend on Next.js. You can use them directly:
 
 ```ts

@@ -108,6 +108,158 @@ describe("negotiateRequest", () => {
     expect(response?.headers.get("content-language")).toBeNull();
   });
 
+  describe("with one language shared by every variant", () => {
+    const english = (onNoMatch?: 406) =>
+      defineNegotiation({
+        rules: [
+          {
+            source: "/guide/:slug",
+            variants: [
+              { type: "text/html", language: "en" },
+              {
+                type: "text/markdown",
+                language: "EN",
+                destination: "/md/guide/:slug",
+              },
+            ],
+            onNoMatch,
+          },
+        ],
+      });
+
+    it("does not vary on Accept-Language, but still sends Content-Language", () => {
+      const response = negotiateRequest(
+        request("/guide/intro", {
+          accept: "text/markdown",
+          "accept-language": "fr",
+        }),
+        english(),
+      );
+      expect(response?.headers.get("vary")).toBe("Accept, RSC");
+      expect(response?.headers.get("content-language")).toBe("EN");
+    });
+
+    it("ignores Accept-Language when selecting", () => {
+      // Excluding the language must not change the variant, because caches
+      // do not key on Accept-Language.
+      const response = negotiateRequest(
+        request("/guide/intro", {
+          accept: "text/markdown",
+          "accept-language": "fr, *;q=0",
+        }),
+        english(),
+      );
+      expect(rewrite(response)).toBe("http://localhost:3000/md/guide/intro");
+    });
+
+    it("still negotiates the language on a 406 rule", () => {
+      const response = negotiateRequest(
+        request("/guide/intro", { "accept-language": "fr, *;q=0" }),
+        english(406),
+      );
+      expect(response?.status).toBe(406);
+      expect(response?.headers.get("vary")).toBe(
+        "Accept, Accept-Language, RSC",
+      );
+    });
+  });
+
+  describe("with one media type shared by every variant", () => {
+    const html = (onNoMatch?: 406) =>
+      defineNegotiation({
+        rules: [
+          {
+            source: "/guide/:slug",
+            variants: [
+              { type: "text/html", language: "en" },
+              {
+                type: "Text/HTML",
+                language: "fr",
+                destination: "/fr/guide/:slug",
+              },
+            ],
+            onNoMatch,
+          },
+        ],
+      });
+
+    it("varies on Accept-Language only", () => {
+      const response = negotiateRequest(request("/guide/intro"), html());
+      expect(response?.headers.get("vary")).toBe("Accept-Language");
+    });
+
+    it("ignores Accept when selecting", () => {
+      // An unacceptable media type must not send the client to the default
+      // variant, because caches do not key on Accept.
+      for (const accept of ["text/markdown", "text/html;q=0", "*/*"]) {
+        const response = negotiateRequest(
+          request("/guide/intro", { accept, "accept-language": "fr" }),
+          html(),
+        );
+        expect(rewrite(response)).toBe("http://localhost:3000/fr/guide/intro");
+        expect(response?.headers.get("content-language")).toBe("fr");
+      }
+    });
+
+    it("still negotiates the media type on a 406 rule", () => {
+      const response = negotiateRequest(
+        request("/guide/intro", { accept: "text/markdown" }),
+        html(406),
+      );
+      expect(response?.status).toBe(406);
+      expect(response?.headers.get("vary")).toBe(
+        "Accept, Accept-Language, RSC",
+      );
+    });
+  });
+
+  it("does not vary on anything when every variant shares every value", () => {
+    const single = defineNegotiation({
+      rules: [
+        {
+          source: "/guide/:slug",
+          variants: [
+            { type: "text/html", language: "en", encoding: "gzip" },
+            {
+              type: "text/html",
+              language: "en",
+              encoding: "gzip",
+              destination: "/gz/guide/:slug",
+            },
+          ],
+        },
+      ],
+    });
+    const response = negotiateRequest(
+      request("/guide/intro", {
+        accept: "text/markdown",
+        "accept-language": "fr, *;q=0",
+        "accept-encoding": "br",
+      }),
+      single,
+    );
+    expect(response?.headers.get("vary")).toBeNull();
+    expect(response?.headers.get("x-middleware-next")).toBe("1");
+    expect(response?.headers.get("content-language")).toBe("en");
+  });
+
+  it("varies on Accept-Language when only some variants declare the language", () => {
+    const partial = defineNegotiation({
+      rules: [
+        {
+          source: "/guide/:slug",
+          variants: [
+            { type: "text/html", language: "en" },
+            { type: "text/markdown", destination: "/md/guide/:slug" },
+          ],
+        },
+      ],
+      skipProxyUrlNormalize: true,
+    });
+    const response = negotiateRequest(request("/guide/intro"), partial);
+    expect(response?.headers.get("vary")).toBe("Accept, Accept-Language, RSC");
+  });
+
   it("serves the default HTML page to browsers whose language is not offered", () => {
     const browser = {
       accept: "text/html,application/xhtml+xml,*/*;q=0.8",
