@@ -61,11 +61,15 @@ curl -H 'Accept-Language: fr' localhost:3000/docs/intro     # French HTML
    export const proxy = createNegotiationProxy(negotiation);
 
    // Optional. Next.js reads this statically, so write the sources as literals.
-   export const config = { matcher: ["/docs/:path*"] };
+   // Include the destinations to link them back to the negotiated URL.
+   export const config = {
+     matcher: ["/docs/:path*", "/fr/docs/:path*", "/md/docs/:path*"],
+   };
    ```
 
    If you already have a proxy, use `negotiateRequest` instead. It returns
-   `undefined` when no rule matches:
+   `undefined` when the path matches no rule's `source` or variant's
+   `destination`:
 
    ```ts
    import { negotiateRequest } from "nextjs-content-negotiation/proxy";
@@ -176,7 +180,18 @@ media type, `Vary` also lists `RSC`, because App Router navigations always get
 the HTML variant. When
 the request is rewritten, it also gets `Content-Location` with the variant's
 own URL. When the selected variant declares a `language`, the response gets
-`Content-Language` with that language.
+`Content-Language` with that language. Every response from a negotiated path,
+also a `406` response, gets a `Link` header that lists each variant with a
+`destination` as `rel="alternate"`, with its `type` and its `language` as
+`hreflang` ([RFC 8288](https://www.rfc-editor.org/rfc/rfc8288)).
+
+A request to a variant's own URL passes through with a `Link` back to the
+negotiated URL, with `rel="alternate"`. That link has a `type` or `hreflang`
+only if every variant declares the same value, because negotiation can change
+the others. A `source` takes precedence over a `destination` that matches the
+same path. No link is sent if the negotiated URL cannot be built from the
+variant's URL, for example if `source` has a parameter that `destination` does
+not use.
 
 If every variant of a rule declares the same `type`, `language` or `encoding`
 and `onNoMatch` is not `406`, that dimension is not negotiated: its header does

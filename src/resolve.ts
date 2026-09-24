@@ -16,7 +16,7 @@ const negotiated = new WeakMap<VariantRule, readonly Variant[]>();
  * (such as media type parameters with other spacing) count as different and
  * stay negotiated.
  */
-function sharedDimensions(variants: readonly Variant[]): Dimension[] {
+export function sharedDimensions(variants: readonly Variant[]): Dimension[] {
   return variantDimensions(variants).filter((dimension) => {
     const values = new Set(
       variants.map((variant) => variant[dimension]?.toLowerCase()),

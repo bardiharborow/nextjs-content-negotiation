@@ -114,6 +114,22 @@ serves_markdown() {
     expect_header "^content-location: $base_path/md/docs/intro$slash\\s*$" "$response"
 }
 
+# Next.js keeps the proxy's Link header on page responses.
+alternates_link() {
+  local response
+  response=$(headers "$(url /docs/intro)")
+  expect_header "^link:.*<$base_path/fr/docs/intro$slash>; rel=\"alternate\"; type=\"text/html\"; hreflang=\"fr\"" "$response" &&
+    expect_header "^link:.*<$base_path/md/docs/intro$slash>; rel=\"alternate\"; type=\"text/markdown\"" "$response"
+}
+
+# A variant's own URL links back to the negotiated URL, without the type or
+# language that negotiation can change.
+negotiated_link() {
+  local response
+  response=$(headers "$(url /md/docs/intro)")
+  expect_header "^link: <$base_path/docs/intro$slash>; rel=\"alternate\"\\s*$" "$response"
+}
+
 not_acceptable() {
   local status
   status=$(curl -s -o /dev/null -w '%{http_code}' -H 'Accept: image/png' "$(url /data/1)")
@@ -153,6 +169,8 @@ check "dynamic page Vary" dynamic_page_vary
 check "Accept-Language: fr serves the French page" serves_french
 check "the French page sends Content-Language: fr" content_language
 check "Accept: text/markdown serves Markdown" serves_markdown
+check "negotiated pages link to their alternates" alternates_link
+check "variant URLs link to the negotiated URL" negotiated_link
 check "unacceptable Accept on a 406 rule responds 406" not_acceptable
 check "Accept: */* with an unoffered language serves Markdown" wildcard_gets_markdown
 check "App Router navigations get the page" navigation_gets_page

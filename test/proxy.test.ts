@@ -108,6 +108,210 @@ describe("negotiateRequest", () => {
     expect(response?.headers.get("content-language")).toBeNull();
   });
 
+  describe("Link", () => {
+    const docsLink =
+      '</md/docs/intro>; rel="alternate"; type="text/markdown", ' +
+      '</fr/docs/intro>; rel="alternate"; type="text/html"; hreflang="fr"';
+
+    it("lists the variants with their own URL on the default variant", () => {
+      const response = negotiateRequest(request("/docs/intro"), negotiation);
+      expect(response?.headers.get("link")).toBe(docsLink);
+    });
+
+    it("sends the same value when the request is rewritten", () => {
+      const response = negotiateRequest(
+        request("/docs/intro", { accept: "text/markdown" }),
+        negotiation,
+      );
+      expect(response?.headers.get("link")).toBe(docsLink);
+    });
+
+    it("keeps the query string, base path and trailing slash", () => {
+      const response = negotiateRequest(
+        request(
+          "/site/docs/intro/?ref=home",
+          {},
+          { basePath: "/site", trailingSlash: true },
+        ),
+        negotiation,
+      );
+      expect(response?.headers.get("link")).toBe(
+        '</site/md/docs/intro/?ref=home>; rel="alternate"; type="text/markdown", ' +
+          '</site/fr/docs/intro/?ref=home>; rel="alternate"; type="text/html"; hreflang="fr"',
+      );
+    });
+
+    it("keeps encoded params encoded", () => {
+      const response = negotiateRequest(
+        request("/api/items/a%2Fb", { accept: "text/csv" }),
+        negotiation,
+      );
+      expect(response?.headers.get("link")).toBe(
+        '</api/json/items/a%2Fb>; rel="alternate"; type="application/json", ' +
+          '</api/csv/items/a%2Fb>; rel="alternate"; type="text/csv"',
+      );
+    });
+
+    it("is sent on a 406 response", () => {
+      const response = negotiateRequest(
+        request("/api/items/1", { accept: "image/png" }),
+        negotiation,
+      );
+      expect(response?.status).toBe(406);
+      expect(response?.headers.get("link")).toBe(
+        '</api/json/items/1>; rel="alternate"; type="application/json", ' +
+          '</api/csv/items/1>; rel="alternate"; type="text/csv"',
+      );
+    });
+
+    it("quotes media type parameters", () => {
+      const response = negotiateRequest(
+        request("/page"),
+        defineNegotiation({
+          rules: [
+            {
+              source: "/page",
+              variants: [
+                { type: "text/html" },
+                {
+                  type: 'text/plain; charset=utf-8; x="a,b"',
+                  destination: "/page.txt",
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(response?.headers.get("link")).toBe(
+        '</page.txt>; rel="alternate"; type="text/plain; charset=utf-8; x=\\"a,b\\""',
+      );
+    });
+
+    it("is not sent when no variant has its own URL", () => {
+      const response = negotiateRequest(
+        request("/page"),
+        defineNegotiation({
+          rules: [
+            {
+              source: "/page",
+              variants: [{ encoding: "identity" }, { encoding: "gzip" }],
+            },
+          ],
+        }),
+      );
+      expect(response?.headers.get("link")).toBeNull();
+    });
+  });
+
+  describe("on a variant's own URL", () => {
+    it("links to the negotiated URL without negotiated attributes", () => {
+      const response = negotiateRequest(
+        request("/md/docs/guide/setup?ref=home", { accept: "text/html" }),
+        negotiation,
+      );
+      expect(response?.headers.get("x-middleware-next")).toBe("1");
+      expect(rewrite(response)).toBeNull();
+      expect(response?.headers.get("link")).toBe(
+        '</docs/guide/setup?ref=home>; rel="alternate"',
+      );
+      expect(response?.headers.get("vary")).toBeNull();
+      expect(response?.headers.get("content-location")).toBeNull();
+    });
+
+    it("keeps the base path, trailing slash and encoded params", () => {
+      const response = negotiateRequest(
+        request(
+          "/site/fr/docs/a%2Fb/",
+          {},
+          { basePath: "/site", trailingSlash: true },
+        ),
+        negotiation,
+      );
+      expect(response?.headers.get("link")).toBe(
+        '</site/docs/a%2Fb/>; rel="alternate"',
+      );
+    });
+
+    it("declares a type or language that every variant shares", () => {
+      const shared = defineNegotiation({
+        rules: [
+          {
+            source: "/page",
+            variants: [
+              { type: "text/html", language: "en" },
+              {
+                type: "text/html",
+                language: "EN",
+                encoding: "gzip",
+                destination: "/page.gz",
+              },
+            ],
+          },
+        ],
+      });
+      const response = negotiateRequest(request("/page.gz"), shared);
+      expect(response?.headers.get("link")).toBe(
+        '</page>; rel="alternate"; type="text/html"; hreflang="en"',
+      );
+    });
+
+    it("prefers a rule's source over a variant's own URL", () => {
+      const overlapping = defineNegotiation({
+        rules: [
+          {
+            source: "/docs/:path*",
+            variants: [
+              { type: "text/html" },
+              { type: "text/markdown", destination: "/docs/raw/:path*" },
+            ],
+          },
+        ],
+      });
+      const response = negotiateRequest(
+        request("/docs/raw/intro"),
+        overlapping,
+      );
+      expect(response?.headers.get("vary")).toBe("Accept, RSC");
+    });
+
+    it("does not link when the source needs a param the destination lacks", () => {
+      const lossy = defineNegotiation({
+        rules: [
+          {
+            source: "/:lang/docs/:path*",
+            variants: [
+              { type: "text/html" },
+              { type: "text/markdown", destination: "/raw/:path*" },
+            ],
+          },
+        ],
+      });
+      expect(negotiateRequest(request("/raw/intro"), lossy)).toBeUndefined();
+    });
+
+    it("does not link when the value does not fit the source pattern", () => {
+      const numeric = defineNegotiation({
+        rules: [
+          {
+            source: "/items/:id(\\d+)",
+            variants: [
+              { type: "application/json" },
+              { type: "text/csv", destination: "/csv/items/:id" },
+            ],
+          },
+        ],
+      });
+      expect(
+        negotiateRequest(request("/csv/items/abc"), numeric),
+      ).toBeUndefined();
+      expect(
+        negotiateRequest(request("/csv/items/12"), numeric)?.headers.get(
+          "link",
+        ),
+      ).toBe('</items/12>; rel="alternate"');
+    });
+  });
+
   describe("with one language shared by every variant", () => {
     const english = (onNoMatch?: 406) =>
       defineNegotiation({

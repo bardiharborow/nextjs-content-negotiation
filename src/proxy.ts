@@ -8,13 +8,23 @@ import {
 import type { NegotiationConfig, NegotiationRule } from "./config.js";
 import { DIMENSION_HEADERS, type Dimension } from "./dimensions.js";
 import type { HeaderSource, Variant } from "./negotiate.js";
-import { negotiatedDimensions, resolveVariant } from "./resolve.js";
+import {
+  negotiatedDimensions,
+  resolveVariant,
+  sharedDimensions,
+} from "./resolve.js";
 
 type Params = Record<string, string | string[]>;
 
 interface CompiledRule {
   match: MatchFunction<Params>;
   destinations: Map<Variant, PathFunction<Params>>;
+  /** Matchers for the variants' own URLs, to link back to `source`. */
+  variantMatches: MatchFunction<Params>[];
+  /** Builds the negotiated URL from the params of a variant's own URL. */
+  source: PathFunction<Params>;
+  /** Link to the negotiated URL, after the target: `rel` and fixed attributes. */
+  negotiatedLinkParams: string;
   vary: string | null;
   /** Body of the `406 Not Acceptable` response, listing the variants. */
   notAcceptableBody: string;
@@ -51,6 +61,15 @@ function compileRule(rule: NegotiationRule): CompiledRule {
               ],
         ),
       ),
+      variantMatches: rule.variants.flatMap((variant) =>
+        variant.destination === undefined
+          ? []
+          : [match<Params>(variant.destination)],
+      ),
+      // Validate the params, because they come from a destination pattern
+      // that can accept values the source pattern does not.
+      source: compile<Params>(rule.source, { validate: true }),
+      negotiatedLinkParams: negotiatedLinkParams(rule.variants),
       vary: vary.length ? vary.join(", ") : null,
       notAcceptableBody: notAcceptableBody(rule.variants, dimensions),
     };
@@ -98,11 +117,98 @@ function negotiationHeaders(request: NextRequest): HeaderSource {
 }
 
 /**
+ * The variant's own URL, for the rewrite, and its path and query. `href` adds
+ * the base path, locale and trailing slash that the request had. The query is
+ * part of the variant's URL (RFC 9110 §8.7).
+ */
+function variantUrl(
+  request: NextRequest,
+  path: PathFunction<Params>,
+  params: Params,
+): { url: URL; location: string } {
+  const url = request.nextUrl.clone();
+  url.pathname = path(params);
+  const { pathname, search } = new URL(url.href);
+  return { url, location: pathname + search };
+}
+
+/** A quoted string (RFC 9110 §5.6.4). */
+const quote = (value: string) => `"${value.replace(/["\\]/g, "\\$&")}"`;
+
+/**
+ * Parameters of the link from a variant's own URL to the negotiated URL. The
+ * negotiated URL can serve any variant, so it only gets a `type` or
+ * `hreflang` that every variant shares.
+ */
+function negotiatedLinkParams(variants: readonly Variant[]): string {
+  const shared = sharedDimensions(variants);
+  const first = variants[0]!;
+  let params = '; rel="alternate"';
+  if (shared.includes("type")) params += `; type=${quote(first.type!)}`;
+  if (shared.includes("language"))
+    params += `; hreflang=${quote(first.language!)}`;
+  return params;
+}
+
+/**
+ * A response for a request to a variant's own URL that links to the
+ * negotiated URL, or `undefined` if the path is not a variant's URL or the
+ * negotiated URL cannot be built from it.
+ */
+function linkToNegotiated(
+  request: NextRequest,
+  compiledRule: CompiledRule,
+): NextResponse | undefined {
+  for (const variantMatch of compiledRule.variantMatches) {
+    const matched = variantMatch(request.nextUrl.pathname);
+    if (!matched) continue;
+    let location: string;
+    try {
+      ({ location } = variantUrl(request, compiledRule.source, matched.params));
+    } catch {
+      // The source uses a param that the destination does not, or the
+      // destination matched a value that the source pattern does not accept.
+      continue;
+    }
+    const response = NextResponse.next();
+    response.headers.append(
+      "Link",
+      `<${location}>${compiledRule.negotiatedLinkParams}`,
+    );
+    return response;
+  }
+  return undefined;
+}
+
+/**
+ * A `Link` header value (RFC 8288) that lists every variant with its own URL
+ * as an alternate, or `null` if no variant has one. It does not depend on the
+ * selected variant, so every response from the URL gets the same value.
+ */
+function alternatesLink(
+  request: NextRequest,
+  compiledRule: CompiledRule,
+  params: Params,
+): string | null {
+  const links = [...compiledRule.destinations].map(([variant, destination]) => {
+    const { location } = variantUrl(request, destination, params);
+    let link = `<${location}>; rel="alternate"`;
+    if (variant.type !== undefined) link += `; type=${quote(variant.type)}`;
+    if (variant.language !== undefined)
+      link += `; hreflang=${quote(variant.language)}`;
+    return link;
+  });
+  return links.length ? links.join(", ") : null;
+}
+
+/**
  * Negotiates a request against the configured rules.
  *
  * Returns a response that rewrites to the selected variant (or passes the
- * request through), a 406 response, or `undefined` if no rule matches the
- * path. Use it to compose negotiation with other proxy logic.
+ * request through), or a 406 response. For a variant's own URL, returns a
+ * response that passes the request through with a `Link` to the negotiated
+ * URL. Returns `undefined` if the path is neither. Use it to compose
+ * negotiation with other proxy logic.
  */
 export function negotiateRequest(
   request: NextRequest,
@@ -123,13 +229,13 @@ export function negotiateRequest(
     } else {
       const destination = compiledRule.destinations.get(variant);
       if (destination) {
-        const url = request.nextUrl.clone();
-        url.pathname = destination(matched.params);
+        const { url, location } = variantUrl(
+          request,
+          destination,
+          matched.params,
+        );
         response = NextResponse.rewrite(url);
-        // `href` adds the base path, locale and trailing slash that the
-        // request had. The query is part of the variant's URL (RFC 9110 §8.7).
-        const { pathname, search } = new URL(url.href);
-        response.headers.set("Content-Location", pathname + search);
+        response.headers.set("Content-Location", location);
       } else {
         response = NextResponse.next();
       }
@@ -140,7 +246,14 @@ export function negotiateRequest(
       }
     }
     if (compiledRule.vary) response.headers.set("Vary", compiledRule.vary);
+    const link = alternatesLink(request, compiledRule, matched.params);
+    if (link) response.headers.append("Link", link);
     return response;
+  }
+  // A rule's `source` takes precedence over every variant's own URL.
+  for (const rule of negotiation.rules) {
+    const response = linkToNegotiated(request, compileRule(rule));
+    if (response) return response;
   }
   return undefined;
 }
